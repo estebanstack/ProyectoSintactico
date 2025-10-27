@@ -82,22 +82,42 @@ Si el bloque siguiente no está correctamente indentado, se reporta:
 Este archivo se encarga de la **interacción** con el usuario o con la consola.
 
 ```bash
-python main.py entrada.py salida.txt
+python main.py entrada.py
 ```
 
 Pasos:
 1. Lee el archivo de entrada (`entrada.py`).
 2. Pasa el código al **lexer** para obtener los tokens.
 3. Envía los tokens al **parser** para analizarlos.
-4. Escribe en `salida.txt` el resultado:
-   - Si no hay errores:  
-     ```
-     El analisis sintactico ha finalizado exitosamente.
-     ```
-   - Si hay errores:
-     ```
-     <linea,col> Error sintactico: se encontro: “:” ; se esperaba “)”, “,”.
-     ```
+4. Crea automáticamente un archivo de salida llamado **`salida.txt`** con el resultado del análisis.
+5. Muestra también el resultado directamente por consola.
+
+#### Ejemplo de uso
+
+```bash
+python main.py prueba.py
+```
+
+#### Salida por consola:
+```
+Analizando 'prueba.py'... El resultado se guardará en 'salida.txt'
+
+--- Resultado del análisis ---
+El analisis sintactico ha finalizado exitosamente.
+```
+
+#### Archivo generado:
+`salida.txt`
+
+- Si **no hay errores**:
+  ```
+  El analisis sintactico ha finalizado exitosamente.
+  ```
+
+- Si **hay errores**:
+  ```
+  <linea,col> Error sintactico: se encontro: ":"; se esperaba: ")", ",".
+  ```
 
 ---
 
