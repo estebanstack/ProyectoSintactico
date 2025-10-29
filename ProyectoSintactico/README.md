@@ -132,7 +132,7 @@ En cada función que representa un no terminal, las condiciones `if` definen su 
 Las producciones que pueden repetirse o vaciarse (ε) usan **bucles `while`** para simular los conjuntos SIGUIENTES, deteniéndose cuando el token ya no pertenece a PRIMEROS de la repetición.
 
 ### 🔹 PREDICCIÓN
-Cada `if` o `elif` del parser implementa la **decisión predictiva** del conjunto FIRST/PREDICCIÓN.  
+Cada `if` o `elif` del parser implementa la **decisión predictiva** del conjunto PRIMEROS/PREDICCIÓN.  
 El token actual (`self.act`) actúa como *lookahead* de 1 símbolo.
 
 ---
