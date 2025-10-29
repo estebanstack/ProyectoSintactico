@@ -8,11 +8,12 @@ from lexer import (
 class AbortarSintaxis(Exception):
     pass
 
+
 class AnalizadorSintactico:
     def __init__(self, tokens, salida=sys.stdout):
         self.toks = tokens
         self.i = 0
-        self.act = self.toks[0] if self.toks else Token("EOF","",1,1)
+        self.act = self.toks[0] if self.toks else Token("EOF", "", 1, 1)
         self.salida = salida
         self.pila_indent = [1]
         self.ult_linea_sent = self.act.linea
@@ -37,7 +38,7 @@ class AnalizadorSintactico:
             print(texto)
 
     def avanzar(self):
-        if self.i < len(self.toks)-1:
+        if self.i < len(self.toks) - 1:
             self.i += 1
             self.act = self.toks[self.i]
 
@@ -122,17 +123,30 @@ class AnalizadorSintactico:
 
     # sentencias simples
     def sentencia_simple(self):
-        if self.act.lexema in ("pass","break","continue"):
-            self.avanzar()
-            return
-        if self.act.lexema == "return":
-            self.avanzar()
-            # expresion opcional en la misma línea
-            if self.act.tipo != "EOF" and self.act.linea == self.ult_linea_sent:
-                self.expresion()
-            return
-        # asignacion o expresion
-        self.sentencia_expresion()
+    	# Sentencias simples: pass, break, continue, return, print
+    	if self.act.lexema in ("pass", "break", "continue"):
+        	self.avanzar()
+        	return
+
+    	if self.act.lexema == "return":
+        	self.avanzar()
+        	# expresión opcional en la misma línea
+        	if self.act.tipo != "EOF" and self.act.linea == self.ult_linea_sent:
+            		self.expresion()
+        	return
+
+    	if self.act.lexema == "print":
+        	self.avanzar()
+        	# Llamada tipo print(...)
+        	self.emparejar("(", mostrar=["("])
+        	if self.act.lexema != ")":  # puede estar vacío
+        	    self.lista_argumentos()
+        	self.emparejar(")", mostrar=[")"])
+        	return
+
+    	# Si no es ninguna de las anteriores, tratamos como expresión o asignación
+    	self.sentencia_expresion()
+
 
     def sentencia_expresion(self):
         # destino ('=' expr) | expresion
@@ -262,51 +276,57 @@ class AnalizadorSintactico:
 
     def comparacion(self):
         self.expr_arit()
-        while self.act.lexema in ("==","!=", "<",">","<=",">=","in","is"):
+        while self.act.lexema in ("==", "!=", "<", ">", "<=", ">=", "in", "is"):
             self.avanzar()
             self.expr_arit()
 
     def expr_arit(self):
         self.termino()
-        while self.act.lexema in ("+","-"):
+        while self.act.lexema in ("+", "-"):
             self.avanzar()
             self.termino()
 
     def termino(self):
         self.factor()
-        while self.act.lexema in ("*","/","%"):
+        while self.act.lexema in ("*", "/", "%"):
             self.avanzar()
             self.factor()
 
     def factor(self):
-        if self.act.lexema in ("+","-"):
+        if self.act.lexema in ("+", "-"):
             self.avanzar()
             self.factor()
             return
         self.potencia()
 
     def potencia(self):
-        self.atomo()
-        # trailers: llamadas, indexación y atributos
-        while True:
-            if self.act.lexema == "(":
-                self.emparejar("(")
-                if self.act.lexema != ")":
-                    self.lista_argumentos()
-                self.emparejar(")", mostrar=[")"])
-            elif self.act.lexema == "[":
-                self.emparejar("[")
-                self.expresion()
-                self.emparejar("]", mostrar=["]"])
-            elif self.act.lexema == ".":
-                self.emparejar(".")
-                self.emparejar("id", mostrar=["identificador"])
-            else:
-                break
+    	self.atomo()
+
+    
+    	while True:
+        	if self.act.lexema == "(":
+        	    self.emparejar("(")
+        	    if self.act.lexema != ")":
+        	        self.lista_argumentos()
+        	    self.emparejar(")", mostrar=[")"])
+        	elif self.act.lexema == "[":
+        	    self.emparejar("[")
+        	    self.expresion()
+        	    self.emparejar("]", mostrar=["]"])
+        	elif self.act.lexema == ".":
+        	    self.emparejar(".")
+        	    self.emparejar("id", mostrar=["identificador"])
+        	else:
+        	    break
+
+    	if self.act.lexema == "**":
+        	self.emparejar("**")
+        	self.factor()
+
 
     def atomo(self):
         tok = self.act
-        if tok.tipo == "id" or tok.tipo in {"tk_entero","tk_cadena"} or tok.lexema in {"True","False","None"}:
+        if tok.tipo in {"id", "tk_entero", "tk_decimal", "tk_cadena"} or tok.lexema in {"True", "False", "None"}:
             self.avanzar()
             return
         if tok.lexema == "(":
@@ -333,19 +353,42 @@ class AnalizadorSintactico:
             self.expresion_lambda()
             return
         # inesperado
-        self.reportar_error(tok, esperados=["id","num","cadena","(","[","lambda","True","False","None"])
+        self.reportar_error(tok, esperados=["id", "num", "cadena", "(", "[", "lambda", "True", "False", "None"])
 
     def lista_argumentos(self):
-        # expr (',' expr)* [',']
+        # expr inicial
         self.expresion()
+
+        # Soporte de generadores/compresiones en argumentos: expr 'for' ...
+        if self.act.lexema == "for":
+            self.comp_for()
+            return
+
         while self.act.lexema == ",":
             self.emparejar(",")
             if self.act.lexema == ")":
                 break
             self.expresion()
-        # Validación para mensaje esperado del enunciado
+          
+            if self.act.lexema == "for":
+                self.comp_for()
+                break
+
         if self.act.lexema not in (")", ","):
             self.reportar_error(self.act, esperados=[")", ","])
+
+    def comp_for(self):
+        # comp_for: ('for' id 'in' expresion ('if' expresion)*)+
+        while True:
+            self.emparejar("for")
+            self.emparejar("id", mostrar=["identificador"])
+            self.emparejar("in")
+            self.expresion()
+            while self.act.lexema == "if":
+                self.emparejar("if")
+                self.expresion()
+            if self.act.lexema != "for":
+                break
 
     def expresion_lambda(self):
         self.emparejar("lambda")
