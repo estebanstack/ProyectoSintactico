@@ -129,7 +129,7 @@ El parser implementa los conceptos de **gramáticas LL(1)**, como los conjuntos 
 En cada función que representa un no terminal, las condiciones `if` definen su conjunto de **PRIMEROS**.
 
 ### 🔹 SIGUIENTES
-Las producciones que pueden repetirse o vaciarse (ε) usan **bucles `while`** para simular los conjuntos FOLLOW, deteniéndose cuando el token ya no pertenece a FIRST de la repetición.
+Las producciones que pueden repetirse o vaciarse (ε) usan **bucles `while`** para simular los conjuntos SIGUIENTES, deteniéndose cuando el token ya no pertenece a PRIMEROS de la repetición.
 
 ### 🔹 PREDICCIÓN
 Cada `if` o `elif` del parser implementa la **decisión predictiva** del conjunto FIRST/PREDICCIÓN.  
