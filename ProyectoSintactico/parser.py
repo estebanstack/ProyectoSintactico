@@ -18,7 +18,7 @@ class AnalizadorSintactico:
         self.pila_indent = [1]
         self.ult_linea_sent = self.act.linea
 
-    # utilidades
+    # -------------------- utilidades --------------------
     def reportar_error(self, token, esperados=None, falla_indent=False):
         if falla_indent:
             msg = f"<{token.linea},{token.col}>Error sintactico: falla de indentacion"
@@ -54,40 +54,41 @@ class AnalizadorSintactico:
             self.reportar_error(self.act, esperados=esperados)
 
     def en_limite_de_linea(self):
-        # Detecta si comenzó una nueva linea con respecto a la ultima sentencia
         return self.act.linea > self.ult_linea_sent
 
-    # punto de entrada
+    # -------------------- punto de entrada --------------------
     def analizar(self):
         try:
             self.programa()
             self._emitir("El analisis sintactico ha finalizado exitosamente.")
         except AbortarSintaxis:
+            # igual imprimimos los conjuntos teóricos para referencia
+            self.imprimir_conjuntos_teoricos()
             return
         except ErrorLexico as le:
             self._emitir(str(le))
+            self.imprimir_conjuntos_teoricos()
+            return
 
-    # gramática
+        # si todo ok, también imprimimos conjuntos
+        self.imprimir_conjuntos_teoricos()
+
+    # -------------------- gramática --------------------
     def programa(self):
-        # secuencia de sentencias hasta EOF
         while self.act.tipo != "EOF":
             self.sentencia()
 
-    # gestion de indentacion para sentencias compuestas
+    # gestión indentación
     def requerir_indentacion_si_necesaria(self):
         if self.act.linea == self.ult_linea_sent:
-            # debe comenzar en una nueva línea tras ':'
             self.reportar_error(self.act, falla_indent=True)
-        # la siguiente sentencia debe estar más indentada que el tope de la pila
         col = self.act.col
         if col <= self.pila_indent[-1]:
             self.reportar_error(self.act, falla_indent=True)
-        # apilar indentacion
         self.pila_indent.append(col)
         self.ult_linea_sent = self.act.linea
 
     def intentar_dedentar(self):
-        # si la linea aumento y la columna actual < tope, hay dedent
         while self.act.linea > self.ult_linea_sent and self.act.col < self.pila_indent[-1]:
             self.pila_indent.pop()
             if len(self.pila_indent) == 0:
@@ -95,17 +96,14 @@ class AnalizadorSintactico:
 
     def consumir_contexto_nueva_linea(self):
         if self.act.linea == self.ult_linea_sent:
-            # Para el subconjunto, se exige nueva linea entre sentencias
             pass
         else:
             self.intentar_dedentar()
             self.ult_linea_sent = self.act.linea
 
     def sentencia(self):
-        # Alinear contexto de nueva linea / indentacion
         self.consumir_contexto_nueva_linea()
 
-        # Sentencias compuestas primero
         if self.act.lexema == "def":
             self.definicion_funcion()
             return
@@ -118,39 +116,31 @@ class AnalizadorSintactico:
         if self.act.lexema == "for":
             self.sentencia_for()
             return
-        # Sentencias simples
         self.sentencia_simple()
 
-    # sentencias simples
+    # sentencias simples (incluye print)
     def sentencia_simple(self):
-    	# Sentencias simples: pass, break, continue, return, print
-    	if self.act.lexema in ("pass", "break", "continue"):
-        	self.avanzar()
-        	return
+        if self.act.lexema in ("pass", "break", "continue"):
+            self.avanzar()
+            return
 
-    	if self.act.lexema == "return":
-        	self.avanzar()
-        	# expresión opcional en la misma línea
-        	if self.act.tipo != "EOF" and self.act.linea == self.ult_linea_sent:
-            		self.expresion()
-        	return
+        if self.act.lexema == "return":
+            self.avanzar()
+            if self.act.tipo != "EOF" and self.act.linea == self.ult_linea_sent:
+                self.expresion()
+            return
 
-    	if self.act.lexema == "print":
-        	self.avanzar()
-        	# Llamada tipo print(...)
-        	self.emparejar("(", mostrar=["("])
-        	if self.act.lexema != ")":  # puede estar vacío
-        	    self.lista_argumentos()
-        	self.emparejar(")", mostrar=[")"])
-        	return
+        if self.act.lexema == "print":
+            self.avanzar()
+            self.emparejar("(", mostrar=["("])
+            if self.act.lexema != ")":
+                self.lista_argumentos()
+            self.emparejar(")", mostrar=[")"])
+            return
 
-    	# Si no es ninguna de las anteriores, tratamos como expresión o asignación
-    	self.sentencia_expresion()
-
+        self.sentencia_expresion()
 
     def sentencia_expresion(self):
-        # destino ('=' expr) | expresion
-        # Primero parsea la izquierda; si sigue '=', es asignacion (posibles cadenas: a=b=c)
         self.lista_expresiones()
         while self.act.lexema == "=":
             self.emparejar("=")
@@ -165,7 +155,6 @@ class AnalizadorSintactico:
             self.parametros()
         self.emparejar("tk_par_der", mostrar=[")"])
         self.emparejar("tk_dos_puntos", mostrar=[":"])
-        # bloque
         self.requerir_indentacion_si_necesaria()
         self.bloque()
 
@@ -204,20 +193,17 @@ class AnalizadorSintactico:
         self.bloque()
 
     def bloque(self):
-        # Una o mas sentencias con la misma indentacion
         linea_base = self.act.linea
         col_base = self.pila_indent[-1]
         while self.act.tipo != "EOF" and self.act.col == col_base and self.act.linea >= linea_base:
             self.sentencia()
             if self.act.tipo == "EOF" or self.act.col < col_base:
                 break
-        # dedent al final del bloque
         if self.pila_indent and self.pila_indent[-1] == col_base:
             self.pila_indent.pop()
 
     # --- parametros y argumentos ---
     def parametros(self):
-        # param (',' param)* [',']
         self.parametro()
         while self.act.lexema == ",":
             self.emparejar(",")
@@ -232,11 +218,9 @@ class AnalizadorSintactico:
             self.tipo_anotado()
 
     def tipo_anotado(self):
-        # tipo simple: id  |  lista tipada: [ id ]
         if self.act.lexema == "[":
             self.emparejar("[")
             self.emparejar("id", mostrar=["tipo/identificador"])
-            # si hay coma aquí, el enunciado espera que falte ']' (caso de prueba)
             if self.act.lexema == ",":
                 self.reportar_error(self.act, esperados=["]"])
             self.emparejar("]", mostrar=["]"])
@@ -245,7 +229,6 @@ class AnalizadorSintactico:
 
     # expresiones
     def lista_expresiones(self):
-        # lista de expresiones separadas por coma (para lados de asignación)
         self.expresion()
         while self.act.lexema == ",":
             self.emparejar(",")
@@ -300,29 +283,30 @@ class AnalizadorSintactico:
         self.potencia()
 
     def potencia(self):
-    	self.atomo()
+        
+        self.atomo()
 
-    
-    	while True:
-        	if self.act.lexema == "(":
-        	    self.emparejar("(")
-        	    if self.act.lexema != ")":
-        	        self.lista_argumentos()
-        	    self.emparejar(")", mostrar=[")"])
-        	elif self.act.lexema == "[":
-        	    self.emparejar("[")
-        	    self.expresion()
-        	    self.emparejar("]", mostrar=["]"])
-        	elif self.act.lexema == ".":
-        	    self.emparejar(".")
-        	    self.emparejar("id", mostrar=["identificador"])
-        	else:
-        	    break
+        
+        while True:
+            if self.act.lexema == "(":
+                self.emparejar("(")
+                if self.act.lexema != ")":
+                    self.lista_argumentos()
+                self.emparejar(")", mostrar=[")"])
+            elif self.act.lexema == "[":
+                self.emparejar("[")
+                self.expresion()
+                self.emparejar("]", mostrar=["]"])
+            elif self.act.lexema == ".":
+                self.emparejar(".")
+                self.emparejar("id", mostrar=["identificador"])
+            else:
+                break
 
-    	if self.act.lexema == "**":
-        	self.emparejar("**")
-        	self.factor()
-
+        # 3) potencia '**' (asociativa a la derecha)
+        if self.act.lexema == "**":
+            self.emparejar("**")
+            self.factor()
 
     def atomo(self):
         tok = self.act
@@ -338,7 +322,6 @@ class AnalizadorSintactico:
             self.emparejar(")", mostrar=[")"])
             return
         if tok.lexema == "[":
-            # literal de lista: [ (expr (',' expr)* [','])? ]
             self.emparejar("[")
             if self.act.lexema != "]":
                 self.expresion()
@@ -352,24 +335,23 @@ class AnalizadorSintactico:
         if tok.lexema == "lambda":
             self.expresion_lambda()
             return
-        # inesperado
         self.reportar_error(tok, esperados=["id", "num", "cadena", "(", "[", "lambda", "True", "False", "None"])
 
     def lista_argumentos(self):
         # expr inicial
         self.expresion()
 
-        # Soporte de generadores/compresiones en argumentos: expr 'for' ...
+        # generador en argumento: expr 'for' id 'in' expr ('if' expr)* ( 'for' ... )*
         if self.act.lexema == "for":
             self.comp_for()
             return
 
+        # lista clásica de argumentos
         while self.act.lexema == ",":
             self.emparejar(",")
             if self.act.lexema == ")":
                 break
             self.expresion()
-          
             if self.act.lexema == "for":
                 self.comp_for()
                 break
@@ -378,7 +360,7 @@ class AnalizadorSintactico:
             self.reportar_error(self.act, esperados=[")", ","])
 
     def comp_for(self):
-        # comp_for: ('for' id 'in' expresion ('if' expresion)*)+
+        # ('for' id 'in' expresion ('if' expresion)*)+
         while True:
             self.emparejar("for")
             self.emparejar("id", mostrar=["identificador"])
@@ -392,7 +374,6 @@ class AnalizadorSintactico:
 
     def expresion_lambda(self):
         self.emparejar("lambda")
-        # parámetros opcionales
         if self.act.lexema != ":":
             self.parametros_lambda()
         self.emparejar(":", mostrar=[":"])
@@ -404,7 +385,139 @@ class AnalizadorSintactico:
             self.emparejar(",")
             self.emparejar("id", mostrar=["identificador"])
 
+    
+    def imprimir_conjuntos_teoricos(self):
+        # Conjuntos FIRST y FOLLOW aproximados y coherentes con las funciones/decisiones del parser.
+        # Terminales representados por lexemas o por tipos de token cuando aplica.
+        FIRST = {
+            "programa": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                         "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                         "True", "False", "None", "+", "-"},
+            "sentencia": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                          "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                          "True", "False", "None", "+", "-"},
+            "sentencia_simple": {"pass", "break", "continue", "return", "print",
+                                 "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                                 "True", "False", "None", "+", "-"},
+            "sentencia_expresion": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                                    "True", "False", "None", "+", "-"},
+            "definicion_funcion": {"def"},
+            "sentencia_if": {"if"},
+            "sentencia_while": {"while"},
+            "sentencia_for": {"for"},
+            "bloque": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                       "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                       "True", "False", "None", "+", "-"},
+            "parametros": {"id"},
+            "parametro": {"id"},
+            "tipo_anotado": {"id", "["},
+            "lista_expresiones": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                                  "True", "False", "None", "+", "-"},
+            "expresion": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                          "True", "False", "None", "+", "-", "not"},
+            "comparacion": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                            "True", "False", "None", "+", "-"},
+            "expr_arit": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                          "True", "False", "None", "+", "-"},
+            "termino": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                        "True", "False", "None", "+", "-"},
+            "factor": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                       "True", "False", "None", "+", "-"},
+            "potencia": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                         "True", "False", "None"},
+            "atomo": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                      "True", "False", "None"},
+            "lista_argumentos": {"id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                                 "True", "False", "None", "+", "-", "not"},
+            "comp_for": {"for"},
+            "expresion_lambda": {"lambda"},
+            "parametros_lambda": {"id"},
+        }
 
+        # FOLLOW (aprox) útil para entender cierres y separadores
+        FOLLOW = {
+            "programa": {"EOF"},
+            "sentencia": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                          "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                          "True", "False", "None", "+", "-", "EOF"},
+            "sentencia_simple": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                                 "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[",
+                                 "lambda", "True", "False", "None", "+", "-", "EOF"},
+            "sentencia_expresion": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                                    "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[",
+                                    "lambda", "True", "False", "None", "+", "-", "EOF"},
+            "definicion_funcion": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                                   "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[",
+                                   "lambda", "True", "False", "None", "+", "-", "EOF"},
+            "sentencia_if": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                             "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[",
+                             "lambda", "True", "False", "None", "+", "-", "EOF"},
+            "sentencia_while": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                                "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[",
+                                "lambda", "True", "False", "None", "+", "-", "EOF"},
+            "sentencia_for": {"def", "if", "while", "for", "pass", "break", "continue", "return",
+                              "print", "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[",
+                              "lambda", "True", "False", "None", "+", "-", "EOF"},
+            "bloque": {"def", "if", "while", "for", "else", "elif", "EOF"},
+            "parametros": {")"},
+            "parametro": {")", ","},
+            "tipo_anotado": {")", ",", "]"},
+            "lista_expresiones": {")", ",", ":", "]"},
+            "expresion": {")", ",", ":", "]", "==", "!=", "<", ">", "<=", ">=", "in", "is",
+                          "+", "-", "*", "/", "%", "**"},
+            "potencia": {")", ",", ":", "]", "==", "!=", "<", ">", "<=", ">=", "in", "is",
+                         "+", "-", "*", "/", "%", "**"},
+            "atomo": {"(", "[", ".", ")", ",", ":", "]", "==", "!=", "<", ">", "<=", ">=",
+                      "in", "is", "+", "-", "*", "/", "%", "**"},
+            "lista_argumentos": {")"},
+            "comp_for": {")", ","},
+            "expresion_lambda": {")", ",", ":", "]"},
+            "parametros_lambda": {":", ","},
+        }
+
+        # Conjuntos de PREDICCIÓN por producción (los disparadores que usa tu parser)
+        PRED = {
+            "sentencia → definicion_funcion": {"def"},
+            "sentencia → sentencia_if": {"if"},
+            "sentencia → sentencia_while": {"while"},
+            "sentencia → sentencia_for": {"for"},
+            "sentencia → sentencia_simple": {"pass", "break", "continue", "return", "print",
+                                             "id", "tk_entero", "tk_decimal", "tk_cadena",
+                                             "(", "[", "lambda", "True", "False", "None", "+", "-"},
+            "sentencia_simple → 'return' expresion?": {"return"},
+            "sentencia_simple → 'print' '(' arglist? ')'": {"print"},
+            "sentencia_simple → 'pass'|'break'|'continue'": {"pass", "break", "continue"},
+            "sentencia_simple → sentencia_expresion": {"id", "tk_entero", "tk_decimal", "tk_cadena",
+                                                       "(", "[", "lambda", "True", "False", "None", "+", "-"},
+            "definicion_funcion → 'def' id '(' parametros? ')' ':' bloque": {"def"},
+            "sentencia_if → 'if' expresion ':' bloque ...": {"if"},
+            "sentencia_while → 'while' expresion ':' bloque": {"while"},
+            "sentencia_for → 'for' id 'in' expresion ':' bloque": {"for"},
+            "atomo → id|num|cadena|'('exp')'|'['lista']'|'lambda'": {"id", "tk_entero", "tk_decimal", "tk_cadena",
+                                                                     "(", "[", "lambda", "True", "False", "None"},
+            "lista_argumentos → expresion (',' expresion)* | expresion comp_for": {
+                "id", "tk_entero", "tk_decimal", "tk_cadena", "(", "[", "lambda",
+                "True", "False", "None", "+", "-", "not"
+            },
+            "comp_for → 'for' id 'in' expresion ('if' expresion)* ( 'for' ... )*": {"for"},
+        }
+
+        self._emitir("\nCONJUNTOS ")
+        self._emitir("PRIMEROS:")
+        for nt in sorted(FIRST.keys()):
+            self._emitir(f"  PRIMEROS({nt}) = {{{', '.join(sorted(FIRST[nt]))}}}")
+
+        self._emitir("\nSIGUIENTES:")
+        for nt in sorted(FOLLOW.keys()):
+            self._emitir(f"  SIGUIENTES({nt}) = {{{', '.join(sorted(FOLLOW[nt]))}}}")
+
+        self._emitir("\nPREDICCION")
+        for prod in sorted(PRED.keys()):
+            self._emitir(f"  PRED({prod}) = {{{', '.join(sorted(PRED[prod]))}}}")
+        
+
+
+# -------------------- función de integración --------------------
 def analizar_archivo(ruta_entrada, ruta_salida):
     with open(ruta_entrada, "r", encoding="utf-8") as f:
         texto = f.read()
